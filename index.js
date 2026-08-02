@@ -6,6 +6,13 @@ const { getDatabase, ref, get } = require('firebase/database');
 
 const token = process.env.BOT_TOKEN || '8928212170:AAGn6VLDQ13tkKVePqq-DOXpFFVdF23eVrQ';
 
+// 🛑 FORCE JOIN CONFIG
+// Invite link for User to Join
+const TARGET_GROUP_LINK = "https://t.me/+3Ximsihx6yYwNWE1"; 
+// Note: Direct Join Links (+3Ximsih...) pe Telegram API check limits hoti hain. 
+// Standard Chat Username or ID best kaam karti hai. Agar ID mil jaye toh -100xxxxxx replace kar dena.
+const TARGET_CHAT_ID = "@TabclOfficial"; // Ya group/channel username / ID
+
 // Firebase Config
 const firebaseConfig = {
   apiKey: "AIzaSyADxTq7n2lazvh_lDmZb429O8jcSVPcIN0",
@@ -26,9 +33,78 @@ const bot = new TelegramBot(token, { polling: true });
 const app = Express();
 const PORT = process.env.PORT || 3000;
 
-app.get('/', (req, res) => res.send('⚡ Tabclbot Ultra-UI Engine is Live & Running!'));
+// Track Sent Messages to Auto-Clean/Delete History per user
+// Format: { userId: [msgId1, msgId2, ...] }
+const userMessageHistory = {};
 
-// Helper: 2-Column Grid Category Keyboard Generator
+app.get('/', (req, res) => res.send('⚡ Tabclbot Ultra-UI with Force-Join & Auto-Clean Engine is Live!'));
+
+// ----------------------------------------------------
+// 🛡️ HELPER: Check Force Join Status
+// ----------------------------------------------------
+async function checkForceSub(userId) {
+  try {
+    const member = await bot.getChatMember(TARGET_CHAT_ID, userId);
+    // Allowed statuses: creator, administrator, member
+    if (['creator', 'administrator', 'member'].includes(member.status)) {
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error("Force Sub Check Error (Fallback Allowed):", error.message);
+    // If bot is not admin in group yet or invite link check fails, fallback to true so bot doesn't break
+    return true; 
+  }
+}
+
+// Send Force Sub Warning Block
+async function sendForceSubPrompt(chatId) {
+  const joinText = 
+    `📢 *ACCESS RESTRICTED!*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `Bot ko use karne ke liye aapko hamara official group join karna compulsory hai.\n\n` +
+    `🔹 Pehle niche button se group join karein.\n` +
+    `🔹 Phir *Verify Membership* par click karein!\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━`;
+
+  const joinBtn = {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "💬 Join Official Group", url: TARGET_GROUP_LINK }],
+        [{ text: "✅ Verify Membership", callback_data: "verify_sub" }]
+      ]
+    }
+  };
+
+  await bot.sendMessage(chatId, joinText, { parse_mode: 'Markdown', ...joinBtn });
+}
+
+// ----------------------------------------------------
+// 🧹 HELPER: Clear User Chat History
+// ----------------------------------------------------
+function trackMessage(userId, messageId) {
+  if (!userMessageHistory[userId]) {
+    userMessageHistory[userId] = [];
+  }
+  userMessageHistory[userId].push(messageId);
+}
+
+async function clearChatHistory(chatId, userId) {
+  if (userMessageHistory[userId] && userMessageHistory[userId].length > 0) {
+    for (const msgId of userMessageHistory[userId]) {
+      try {
+        await bot.deleteMessage(chatId, msgId);
+      } catch (e) {
+        // Ignore errors (e.g. if message is older than 48 hrs or already deleted)
+      }
+    }
+    userMessageHistory[userId] = [];
+  }
+}
+
+// ----------------------------------------------------
+// 📁 HELPER: 2-Column Category Keyboard
+// ----------------------------------------------------
 async function getCategoryKeyboard() {
   const catRef = ref(db, 'categories');
   const snapshot = await get(catRef);
@@ -49,10 +125,22 @@ async function getCategoryKeyboard() {
   return inlineKeyboard;
 }
 
+// ----------------------------------------------------
 // 🟢 /start Command
-bot.onText(/\/start/, (msg) => {
+// ----------------------------------------------------
+bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
+  const userId = msg.from.id;
   const userName = msg.from.first_name || 'User';
+
+  // Force Sub Check
+  const isJoined = await checkForceSub(userId);
+  if (!isJoined) {
+    return sendForceSubPrompt(chatId);
+  }
+
+  // Clear previous category output to keep chat clean
+  await clearChatHistory(chatId, userId);
 
   const welcomeText = 
     `✨ *WELCOME TO TABCLBOT* ✨\n` +
@@ -73,16 +161,31 @@ bot.onText(/\/start/, (msg) => {
     }
   };
 
-  bot.sendMessage(chatId, welcomeText, { parse_mode: 'Markdown', ...keyboard });
+  const sent = await bot.sendMessage(chatId, welcomeText, { parse_mode: 'Markdown', ...keyboard });
+  trackMessage(userId, sent.message_id);
 });
 
+// ----------------------------------------------------
 // 📂 /categories & Menu Button Handler
+// ----------------------------------------------------
 bot.onText(/\/categories|📂 All Categories/, async (msg) => {
   const chatId = msg.chat.id;
+  const userId = msg.from.id;
+
+  // Force Sub Check
+  const isJoined = await checkForceSub(userId);
+  if (!isJoined) {
+    return sendForceSubPrompt(chatId);
+  }
+
+  // Auto Clean History
+  await clearChatHistory(chatId, userId);
+
   const inlineKeyboard = await getCategoryKeyboard();
 
   if (inlineKeyboard.length === 0) {
-    return bot.sendMessage(chatId, "⚠️ *No categories found in database.*", { parse_mode: 'Markdown' });
+    const sent = await bot.sendMessage(chatId, "⚠️ *No categories found in database.*", { parse_mode: 'Markdown' });
+    return trackMessage(userId, sent.message_id);
   }
 
   const catText = 
@@ -90,24 +193,56 @@ bot.onText(/\/categories|📂 All Categories/, async (msg) => {
     `━━━━━━━━━━━━━━━━━━━━━━\n` +
     `Tap any category below to fetch direct links:`;
 
-  bot.sendMessage(chatId, catText, {
+  const sent = await bot.sendMessage(chatId, catText, {
     parse_mode: 'Markdown',
     reply_markup: { inline_keyboard: inlineKeyboard }
   });
+  trackMessage(userId, sent.message_id);
 });
 
-// 🔄 Callback Query (Category Selection Flow)
+// ----------------------------------------------------
+// 🔄 Callback Query (Category Selection & Verification)
+// ----------------------------------------------------
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
+  const userId = query.from.id;
   const data = query.data;
 
+  // 1️⃣ Verification Handler
+  if (data === 'verify_sub') {
+    const isJoined = await checkForceSub(userId);
+    if (isJoined) {
+      await bot.answerCallbackQuery(query.id, { text: "✅ Membership Verified! Welcome!", show_alert: true });
+      try { await bot.deleteMessage(chatId, query.message.message_id); } catch(e){}
+      
+      // Auto trigger start
+      bot.sendMessage(chatId, "🎉 *Verification Successful!* Type /start or tap menu to begin.", { parse_mode: 'Markdown' });
+    } else {
+      await bot.answerCallbackQuery(query.id, { text: "❌ Pehle Group Join Karein Phir Click Karein!", show_alert: true });
+    }
+    return;
+  }
+
+  // Check Force Sub before proceeding
+  const isJoined = await checkForceSub(userId);
+  if (!isJoined) {
+    await bot.answerCallbackQuery(query.id, { text: "⚠️ Pehle Group Join Karo!", show_alert: true });
+    return sendForceSubPrompt(chatId);
+  }
+
+  // 2️⃣ Category Clicked Handler
   if (data.startsWith('cat_')) {
     const selectedCategory = data.replace('cat_', '');
+
+    // 🧹 Auto-Clean previous cards before showing new ones!
+    await clearChatHistory(chatId, userId);
+
     const sitesRef = ref(db, 'websites');
     const snapshot = await get(sitesRef);
 
     if (!snapshot.exists()) {
-      bot.sendMessage(chatId, "⚠️ *Database is empty.*", { parse_mode: 'Markdown' });
+      const sent = await bot.sendMessage(chatId, "⚠️ *Database is empty.*", { parse_mode: 'Markdown' });
+      trackMessage(userId, sent.message_id);
     } else {
       let siteList = [];
       snapshot.forEach(childSnap => {
@@ -118,23 +253,25 @@ bot.on('callback_query', async (query) => {
       });
 
       if (siteList.length === 0) {
-        bot.sendMessage(chatId, `⚠️ No active links found under *${selectedCategory}*.`, { parse_mode: 'Markdown' });
+        const sent = await bot.sendMessage(chatId, `⚠️ No active links found under *${selectedCategory}*.`, { parse_mode: 'Markdown' });
+        trackMessage(userId, sent.message_id);
       } else {
-        // Send Modern Section Header
+        // Send Section Header
         const headerText = 
           `📂 *CATEGORY:* \`${selectedCategory.toUpperCase()}\`\n` +
           `━━━━━━━━━━━━━━━━━━━━━━\n` +
           `Showing *${siteList.length}* result(s) below 👇`;
 
-        await bot.sendMessage(chatId, headerText, { parse_mode: 'Markdown' });
+        const sentHeader = await bot.sendMessage(chatId, headerText, { parse_mode: 'Markdown' });
+        trackMessage(userId, sentHeader.message_id);
 
-        // Loop & Send Elegant Site Cards
+        // Loop & Send Elegant Cards
         for (const site of siteList) {
           const cardText = 
             `🌐 *${site.name.toUpperCase()}*\n` +
             `🏷️ *Category:* \`${site.category}\`\n` +
             `━━━━━━━━━━━━━━━━━━━━━━\n` +
-            `🚀 *Click the button below to visit:*`;
+            `🚀 *Click below to visit site:*`;
 
           const linkBtn = {
             reply_markup: {
@@ -144,40 +281,54 @@ bot.on('callback_query', async (query) => {
             }
           };
 
+          let sentCard;
           if (site.logo) {
-            await bot.sendPhoto(chatId, site.logo, { 
-              caption: cardText, 
-              parse_mode: 'Markdown', 
-              ...linkBtn 
-            }).catch(() => {
-              // Fallback if image URL breaks
-              bot.sendMessage(chatId, cardText, { parse_mode: 'Markdown', ...linkBtn });
-            });
+            try {
+              sentCard = await bot.sendPhoto(chatId, site.logo, { caption: cardText, parse_mode: 'Markdown', ...linkBtn });
+            } catch (err) {
+              sentCard = await bot.sendMessage(chatId, cardText, { parse_mode: 'Markdown', ...linkBtn });
+            }
           } else {
-            await bot.sendMessage(chatId, cardText, { parse_mode: 'Markdown', ...linkBtn });
+            sentCard = await bot.sendMessage(chatId, cardText, { parse_mode: 'Markdown', ...linkBtn });
           }
+          trackMessage(userId, sentCard.message_id);
         }
 
-        // Quick Category Switcher at Bottom
+        // Quick Switcher
         const nextNavKeyboard = await getCategoryKeyboard();
-        await bot.sendMessage(chatId, `📌 *Explore Other Categories:*`, {
+        const sentSwitch = await bot.sendMessage(chatId, `📌 *Explore Other Categories:*`, {
           parse_mode: 'Markdown',
           reply_markup: { inline_keyboard: nextNavKeyboard }
         });
+        trackMessage(userId, sentSwitch.message_id);
       }
     }
   }
   bot.answerCallbackQuery(query.id);
 });
 
-// 🔗 /all & Full Index Handler
+// ----------------------------------------------------
+// 🔗 /all Full Index Handler
+// ----------------------------------------------------
 bot.onText(/\/all|🔗 Show All Links/, async (msg) => {
   const chatId = msg.chat.id;
+  const userId = msg.from.id;
+
+  // Force Sub Check
+  const isJoined = await checkForceSub(userId);
+  if (!isJoined) {
+    return sendForceSubPrompt(chatId);
+  }
+
+  // Auto Clean Chat
+  await clearChatHistory(chatId, userId);
+
   const sitesRef = ref(db, 'websites');
   const snapshot = await get(sitesRef);
 
   if (!snapshot.exists()) {
-    return bot.sendMessage(chatId, "⚠️ *No links registered in database.*", { parse_mode: 'Markdown' });
+    const sent = await bot.sendMessage(chatId, "⚠️ *No links registered in database.*", { parse_mode: 'Markdown' });
+    return trackMessage(userId, sent.message_id);
   }
 
   let text = 
@@ -193,13 +344,16 @@ bot.onText(/\/all|🔗 Show All Links/, async (msg) => {
 
   text += `━━━━━━━━━━━━━━━━━━━━━━\n💡 _Tap any highlighted link above to open instantly!_`;
 
-  bot.sendMessage(chatId, text, { parse_mode: 'Markdown', disable_web_page_preview: true });
+  const sent = await bot.sendMessage(chatId, text, { parse_mode: 'Markdown', disable_web_page_preview: true });
+  trackMessage(userId, sent.message_id);
 });
 
+// ----------------------------------------------------
 // Start Express Server
+// ----------------------------------------------------
 app.listen(PORT, () => {
   console.log(`=================================`);
-  console.log(`🚀 TABCLBOT ULTRA UI ONLINE!`);
+  console.log(`🚀 TABCLBOT FORCE-SUB & AUTO-CLEAN UI ONLINE!`);
   console.log(`📡 Port: ${PORT}`);
   console.log(`=================================`);
 });
