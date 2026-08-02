@@ -17,18 +17,18 @@ const firebaseConfig = {
   appId: "1:61381537456:web:b2e0db82bea800d6f65575"
 };
 
-// Initialize
+// Initialize Firebase
 const appFB = initializeApp(firebaseConfig);
 const db = getDatabase(appFB);
 
-// Telegram Bot Instance with Polling
+// Telegram Bot Instance
 const bot = new TelegramBot(token, { polling: true });
 const app = Express();
 const PORT = process.env.PORT || 3000;
 
-app.get('/', (req, res) => res.send('⚡ Tabclbot is Live & Running with Premium UI!'));
+app.get('/', (req, res) => res.send('⚡ Tabclbot Ultra-UI Engine is Live & Running!'));
 
-// Helper: Custom Inline Category Menu Generator
+// Helper: 2-Column Grid Category Keyboard Generator
 async function getCategoryKeyboard() {
   const catRef = ref(db, 'categories');
   const snapshot = await get(catRef);
@@ -39,7 +39,7 @@ async function getCategoryKeyboard() {
     snapshot.forEach(childSnap => {
       const catName = childSnap.val();
       row.push({ text: `📁 ${catName}`, callback_data: `cat_${catName}` });
-      if (row.length === 2) { // 2 categories per row for clean look
+      if (row.length === 2) {
         inlineKeyboard.push(row);
         row = [];
       }
@@ -49,7 +49,7 @@ async function getCategoryKeyboard() {
   return inlineKeyboard;
 }
 
-// /start Command
+// 🟢 /start Command
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   const userName = msg.from.first_name || 'User';
@@ -57,11 +57,11 @@ bot.onText(/\/start/, (msg) => {
   const welcomeText = 
     `✨ *WELCOME TO TABCLBOT* ✨\n` +
     `━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `👋 Hey *${userName}*!\n\n` +
-    `Your ultimate portal for streaming & downloading directory links.\n\n` +
-    `🚀 *Quick Actions:*\n` +
-    `• Click *📂 Categories* to browse by topic.\n` +
-    `• Click *🔗 All Links* to view everything.\n` +
+    `👋 *Hey ${userName}!*\n\n` +
+    `Your high-speed directory portal for streaming, downloads, and web resources.\n\n` +
+    `🎯 *Quick Control Menu:*\n` +
+    `• Tap *📂 All Categories* to filter by genre.\n` +
+    `• Tap *🔗 Show All Links* for complete index.\n` +
     `━━━━━━━━━━━━━━━━━━━━━━`;
 
   const keyboard = {
@@ -76,7 +76,7 @@ bot.onText(/\/start/, (msg) => {
   bot.sendMessage(chatId, welcomeText, { parse_mode: 'Markdown', ...keyboard });
 });
 
-// /categories & Button Handler
+// 📂 /categories & Menu Button Handler
 bot.onText(/\/categories|📂 All Categories/, async (msg) => {
   const chatId = msg.chat.id;
   const inlineKeyboard = await getCategoryKeyboard();
@@ -86,9 +86,9 @@ bot.onText(/\/categories|📂 All Categories/, async (msg) => {
   }
 
   const catText = 
-    `🎯 *SELECT A CATEGORY*\n` +
+    `⚡ *SELECT CATEGORY*\n` +
     `━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `Choose a category below to explore streaming links:`;
+    `Tap any category below to fetch direct links:`;
 
   bot.sendMessage(chatId, catText, {
     parse_mode: 'Markdown',
@@ -96,7 +96,7 @@ bot.onText(/\/categories|📂 All Categories/, async (msg) => {
   });
 });
 
-// Callback Query (Category Clicked)
+// 🔄 Callback Query (Category Selection Flow)
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
@@ -107,42 +107,39 @@ bot.on('callback_query', async (query) => {
     const snapshot = await get(sitesRef);
 
     if (!snapshot.exists()) {
-      bot.sendMessage(chatId, "⚠️ *No links available right now.*", { parse_mode: 'Markdown' });
+      bot.sendMessage(chatId, "⚠️ *Database is empty.*", { parse_mode: 'Markdown' });
     } else {
-      let found = false;
       let siteList = [];
-
       snapshot.forEach(childSnap => {
         const site = childSnap.val();
         if (site.category === selectedCategory) {
-          found = true;
           siteList.push(site);
         }
       });
 
-      if (!found) {
-        bot.sendMessage(chatId, `⚠️ No links found under *${selectedCategory}*.`, { parse_mode: 'Markdown' });
+      if (siteList.length === 0) {
+        bot.sendMessage(chatId, `⚠️ No active links found under *${selectedCategory}*.`, { parse_mode: 'Markdown' });
       } else {
-        // Send Header Banner for Category
-        const headerMsg = 
+        // Send Modern Section Header
+        const headerText = 
           `📂 *CATEGORY:* \`${selectedCategory.toUpperCase()}\`\n` +
           `━━━━━━━━━━━━━━━━━━━━━━\n` +
-          `Found *${siteList.length}* link(s) in this section 👇`;
+          `Showing *${siteList.length}* result(s) below 👇`;
 
-        await bot.sendMessage(chatId, headerMsg, { parse_mode: 'Markdown' });
+        await bot.sendMessage(chatId, headerText, { parse_mode: 'Markdown' });
 
-        // Send Stylish Cards for Each Site
+        // Loop & Send Elegant Site Cards
         for (const site of siteList) {
           const cardText = 
             `🌐 *${site.name.toUpperCase()}*\n` +
             `🏷️ *Category:* \`${site.category}\`\n` +
             `━━━━━━━━━━━━━━━━━━━━━━\n` +
-            `⚡ *Click below to visit site directly:*`;
+            `🚀 *Click the button below to visit:*`;
 
-          const linkButton = {
+          const linkBtn = {
             reply_markup: {
               inline_keyboard: [
-                [{ text: `🚀 Open ${site.name}`, url: site.url }]
+                [{ text: `🔗 Open ${site.name}`, url: site.url }]
               ]
             }
           };
@@ -151,18 +148,19 @@ bot.on('callback_query', async (query) => {
             await bot.sendPhoto(chatId, site.logo, { 
               caption: cardText, 
               parse_mode: 'Markdown', 
-              ...linkButton 
+              ...linkBtn 
             }).catch(() => {
-              bot.sendMessage(chatId, cardText, { parse_mode: 'Markdown', ...linkButton });
+              // Fallback if image URL breaks
+              bot.sendMessage(chatId, cardText, { parse_mode: 'Markdown', ...linkBtn });
             });
           } else {
-            await bot.sendMessage(chatId, cardText, { parse_mode: 'Markdown', ...linkButton });
+            await bot.sendMessage(chatId, cardText, { parse_mode: 'Markdown', ...linkBtn });
           }
         }
 
-        // Quick Category Switcher at Bottom (Prevents Mess)
+        // Quick Category Switcher at Bottom
         const nextNavKeyboard = await getCategoryKeyboard();
-        await bot.sendMessage(chatId, `📌 *Want to explore another category?*`, {
+        await bot.sendMessage(chatId, `📌 *Explore Other Categories:*`, {
           parse_mode: 'Markdown',
           reply_markup: { inline_keyboard: nextNavKeyboard }
         });
@@ -172,35 +170,36 @@ bot.on('callback_query', async (query) => {
   bot.answerCallbackQuery(query.id);
 });
 
-// /all & Show All Links Handler
+// 🔗 /all & Full Index Handler
 bot.onText(/\/all|🔗 Show All Links/, async (msg) => {
   const chatId = msg.chat.id;
   const sitesRef = ref(db, 'websites');
   const snapshot = await get(sitesRef);
 
   if (!snapshot.exists()) {
-    return bot.sendMessage(chatId, "⚠️ *Database is completely empty!*", { parse_mode: 'Markdown' });
+    return bot.sendMessage(chatId, "⚠️ *No links registered in database.*", { parse_mode: 'Markdown' });
   }
 
   let text = 
-    `🌐 *ALL STREAMING DIRECTORY LINKS*\n` +
+    `🌐 *TABCL DIRECTORY INDEX*\n` +
     `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-  let count = 1;
+  let index = 1;
   snapshot.forEach(childSnap => {
     const site = childSnap.val();
-    text += `${count}. 🔹 *[${site.name}](${site.url})*\n   └ 📁 \`${site.category}\`\n\n`;
-    count++;
+    text += `*${index}.* 🔹 [${site.name}](${site.url})\n    └ 📁 \`${site.category}\`\n\n`;
+    index++;
   });
 
-  text += `━━━━━━━━━━━━━━━━━━━━━━\n💡 _Tap any link above to open instantly!_`;
+  text += `━━━━━━━━━━━━━━━━━━━━━━\n💡 _Tap any highlighted link above to open instantly!_`;
 
   bot.sendMessage(chatId, text, { parse_mode: 'Markdown', disable_web_page_preview: true });
 });
 
+// Start Express Server
 app.listen(PORT, () => {
   console.log(`=================================`);
-  console.log(`🚀 TABCLBOT STYLISH UI ONLINE!`);
+  console.log(`🚀 TABCLBOT ULTRA UI ONLINE!`);
   console.log(`📡 Port: ${PORT}`);
   console.log(`=================================`);
 });
