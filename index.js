@@ -6,12 +6,9 @@ const { getDatabase, ref, get } = require('firebase/database');
 
 const token = process.env.BOT_TOKEN || '8928212170:AAGn6VLDQ13tkKVePqq-DOXpFFVdF23eVrQ';
 
-// 🛑 FORCE JOIN CONFIG
-// Invite link for User to Join
+// 🛑 FORCE JOIN CONFIG (EXACT GROUP ID)
 const TARGET_GROUP_LINK = "https://t.me/+3Ximsihx6yYwNWE1"; 
-// Note: Direct Join Links (+3Ximsih...) pe Telegram API check limits hoti hain. 
-// Standard Chat Username or ID best kaam karti hai. Agar ID mil jaye toh -100xxxxxx replace kar dena.
-const TARGET_CHAT_ID = "@TabclOfficial"; // Ya group/channel username / ID
+const TARGET_CHAT_ID = "-1004497948333"; // Fixed Private Group ID Format!
 
 // Firebase Config
 const firebaseConfig = {
@@ -33,27 +30,26 @@ const bot = new TelegramBot(token, { polling: true });
 const app = Express();
 const PORT = process.env.PORT || 3000;
 
-// Track Sent Messages to Auto-Clean/Delete History per user
-// Format: { userId: [msgId1, msgId2, ...] }
+// Track Sent Messages to Auto-Clean Chat History
 const userMessageHistory = {};
 
-app.get('/', (req, res) => res.send('⚡ Tabclbot Ultra-UI with Force-Join & Auto-Clean Engine is Live!'));
+app.get('/', (req, res) => res.send('⚡ Tabclbot Ultra-UI with Fixed Force-Sub Engine is Live!'));
 
 // ----------------------------------------------------
-// 🛡️ HELPER: Check Force Join Status
+// 🛡️ HELPER: Strict Force Join Checker
 // ----------------------------------------------------
 async function checkForceSub(userId) {
   try {
     const member = await bot.getChatMember(TARGET_CHAT_ID, userId);
-    // Allowed statuses: creator, administrator, member
+    // Allowed status only if active in group
     if (['creator', 'administrator', 'member'].includes(member.status)) {
       return true;
     }
     return false;
   } catch (error) {
-    console.error("Force Sub Check Error (Fallback Allowed):", error.message);
-    // If bot is not admin in group yet or invite link check fails, fallback to true so bot doesn't break
-    return true; 
+    console.error("Force Sub Check Error:", error.message);
+    // Strict Lock: If not found or left group, block access
+    return false; 
   }
 }
 
@@ -95,7 +91,7 @@ async function clearChatHistory(chatId, userId) {
       try {
         await bot.deleteMessage(chatId, msgId);
       } catch (e) {
-        // Ignore errors (e.g. if message is older than 48 hrs or already deleted)
+        // Ignore errors
       }
     }
     userMessageHistory[userId] = [];
@@ -133,13 +129,12 @@ bot.onText(/\/start/, async (msg) => {
   const userId = msg.from.id;
   const userName = msg.from.first_name || 'User';
 
-  // Force Sub Check
+  // Strict Force Sub Check
   const isJoined = await checkForceSub(userId);
   if (!isJoined) {
     return sendForceSubPrompt(chatId);
   }
 
-  // Clear previous category output to keep chat clean
   await clearChatHistory(chatId, userId);
 
   const welcomeText = 
@@ -172,13 +167,11 @@ bot.onText(/\/categories|📂 All Categories/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
 
-  // Force Sub Check
   const isJoined = await checkForceSub(userId);
   if (!isJoined) {
     return sendForceSubPrompt(chatId);
   }
 
-  // Auto Clean History
   await clearChatHistory(chatId, userId);
 
   const inlineKeyboard = await getCategoryKeyboard();
@@ -215,7 +208,6 @@ bot.on('callback_query', async (query) => {
       await bot.answerCallbackQuery(query.id, { text: "✅ Membership Verified! Welcome!", show_alert: true });
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch(e){}
       
-      // Auto trigger start
       bot.sendMessage(chatId, "🎉 *Verification Successful!* Type /start or tap menu to begin.", { parse_mode: 'Markdown' });
     } else {
       await bot.answerCallbackQuery(query.id, { text: "❌ Pehle Group Join Karein Phir Click Karein!", show_alert: true });
@@ -234,7 +226,6 @@ bot.on('callback_query', async (query) => {
   if (data.startsWith('cat_')) {
     const selectedCategory = data.replace('cat_', '');
 
-    // 🧹 Auto-Clean previous cards before showing new ones!
     await clearChatHistory(chatId, userId);
 
     const sitesRef = ref(db, 'websites');
@@ -256,7 +247,6 @@ bot.on('callback_query', async (query) => {
         const sent = await bot.sendMessage(chatId, `⚠️ No active links found under *${selectedCategory}*.`, { parse_mode: 'Markdown' });
         trackMessage(userId, sent.message_id);
       } else {
-        // Send Section Header
         const headerText = 
           `📂 *CATEGORY:* \`${selectedCategory.toUpperCase()}\`\n` +
           `━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -265,7 +255,6 @@ bot.on('callback_query', async (query) => {
         const sentHeader = await bot.sendMessage(chatId, headerText, { parse_mode: 'Markdown' });
         trackMessage(userId, sentHeader.message_id);
 
-        // Loop & Send Elegant Cards
         for (const site of siteList) {
           const cardText = 
             `🌐 *${site.name.toUpperCase()}*\n` +
@@ -294,7 +283,6 @@ bot.on('callback_query', async (query) => {
           trackMessage(userId, sentCard.message_id);
         }
 
-        // Quick Switcher
         const nextNavKeyboard = await getCategoryKeyboard();
         const sentSwitch = await bot.sendMessage(chatId, `📌 *Explore Other Categories:*`, {
           parse_mode: 'Markdown',
@@ -314,13 +302,11 @@ bot.onText(/\/all|🔗 Show All Links/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
 
-  // Force Sub Check
   const isJoined = await checkForceSub(userId);
   if (!isJoined) {
     return sendForceSubPrompt(chatId);
   }
 
-  // Auto Clean Chat
   await clearChatHistory(chatId, userId);
 
   const sitesRef = ref(db, 'websites');
@@ -353,7 +339,7 @@ bot.onText(/\/all|🔗 Show All Links/, async (msg) => {
 // ----------------------------------------------------
 app.listen(PORT, () => {
   console.log(`=================================`);
-  console.log(`🚀 TABCLBOT FORCE-SUB & AUTO-CLEAN UI ONLINE!`);
+  console.log(`🚀 TABCLBOT STRICT FORCE-SUB ENGINE ONLINE!`);
   console.log(`📡 Port: ${PORT}`);
   console.log(`=================================`);
 });
